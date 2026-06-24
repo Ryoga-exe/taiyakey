@@ -186,7 +186,8 @@ canvas {
   font-weight: 650;
 }
 
-.select-control select {
+.select-control select,
+.select-control input {
   width: 100%;
   min-height: 32px;
   padding: 4px 8px;
@@ -194,6 +195,33 @@ canvas {
   border-radius: 6px;
   background: #ffffff;
   color: #273142;
+}
+
+.panel-count {
+  color: #7a432b;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.secondary-button {
+  min-height: 32px;
+  border: 1px solid #cfd6df;
+  border-radius: 6px;
+  background: #fbfcfd;
+  color: #273142;
+  cursor: pointer;
+}
+
+.secondary-button:hover {
+  border-color: #de7846;
+  background: #fff7f2;
 }
 
 .weight-control {

@@ -1,4 +1,11 @@
 import "./styles.css";
+import {
+  appendTrialLog,
+  clearTrialLogs,
+  exportTrialLogs,
+  loadTrialLogs,
+  updateTrialLogSelection,
+} from "./debug/trialLog";
 import { preprocessWords, type RawWordEntry } from "./dictionary/preprocess";
 import { createQwertyLayout } from "./keyboard/qwerty";
 import { fromCanvasPoint, render, canvasSize } from "./render/canvas";
@@ -17,7 +24,7 @@ import {
   type ScoreWeights,
 } from "./recognizer/scorer";
 import { pathLength, resample } from "./input/resample";
-import type { Candidate, Point, WordEntry } from "./types";
+import type { Candidate, Point, TrialLog, WordEntry } from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
@@ -85,6 +92,22 @@ app.innerHTML = `
         </div>
         <p class="log" data-log>0 raw points</p>
       </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Trials</h2>
+          <span class="panel-count" data-trial-count>0</span>
+        </div>
+        <div class="control-list">
+          <label class="select-control">
+            <span class="control-name">Target</span>
+            <input data-target-word type="text" autocomplete="off" />
+          </label>
+          <div class="button-row">
+            <button class="secondary-button" type="button" data-export-logs>Export</button>
+            <button class="secondary-button" type="button" data-clear-logs>Clear</button>
+          </div>
+        </div>
+      </section>
     </aside>
   </main>
 `;
@@ -117,6 +140,22 @@ const logEl = requireElement(
   app.querySelector<HTMLParagraphElement>("[data-log]"),
   "Missing log element",
 );
+const targetWordInput = requireElement(
+  app.querySelector<HTMLInputElement>("[data-target-word]"),
+  "Missing target word input",
+);
+const trialCountEl = requireElement(
+  app.querySelector<HTMLSpanElement>("[data-trial-count]"),
+  "Missing trial count element",
+);
+const exportLogsButton = requireElement(
+  app.querySelector<HTMLButtonElement>("[data-export-logs]"),
+  "Missing export logs button",
+);
+const clearLogsButton = requireElement(
+  app.querySelector<HTMLButtonElement>("[data-clear-logs]"),
+  "Missing clear logs button",
+);
 
 const layout = createQwertyLayout();
 const size = canvasSize(layout);
@@ -140,10 +179,22 @@ let isDrawing = false;
 let weights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
 let selectedDictionary = dictionaries[2];
 let recognitionMode: RecognitionMode = "pruned";
+let currentTrialId: string | undefined;
 
 void initialize();
 renderRecognizerControls();
 renderWeights();
+renderTrialCount();
+
+exportLogsButton.addEventListener("click", () => {
+  exportTrialLogs(loadTrialLogs());
+});
+
+clearLogsButton.addEventListener("click", () => {
+  clearTrialLogs();
+  currentTrialId = undefined;
+  renderTrialCount();
+});
 
 async function initialize(): Promise<void> {
   await loadSelectedDictionary();
@@ -170,6 +221,7 @@ canvas.addEventListener("pointerdown", (event) => {
   canvas.setPointerCapture(event.pointerId);
   isDrawing = true;
   selectedWord = undefined;
+  currentTrialId = undefined;
   candidates = [];
   recognitionStats = undefined;
   stroke = [eventPoint(event)];
@@ -207,6 +259,7 @@ function finishStroke(): void {
     selectedWord = candidates[0]?.word;
     const elapsed = performance.now() - startedAt;
     statusEl.textContent = formatStatus(elapsed);
+    currentTrialId = saveCurrentTrial();
   }
 
   renderCandidates();
@@ -253,6 +306,10 @@ function renderCandidates(): void {
       button.type = "button";
       button.addEventListener("click", () => {
         selectedWord = candidate.word;
+        if (currentTrialId) {
+          updateTrialLogSelection(currentTrialId, candidate.word);
+          renderTrialCount();
+        }
         renderCandidates();
         draw();
       });
@@ -395,6 +452,37 @@ function formatStrokeLog(): string {
   if (!recognitionStats) return base;
 
   return `${base}. indexed ${recognitionStats.indexedCandidates}, length ${recognitionStats.afterLengthFilter}, bbox ${recognitionStats.afterBoundsFilter}, scored ${recognitionStats.scoredCandidates}`;
+}
+
+function saveCurrentTrial(): string {
+  const id = crypto.randomUUID();
+  const targetWord = normalizeOptionalWord(targetWordInput.value);
+  const log: TrialLog = {
+    id,
+    targetWord,
+    stroke,
+    normalizedStroke,
+    candidates,
+    recognizerVersion: "m4-local-log-v1",
+    dictionaryVersion: selectedDictionary.label,
+    timestamp: Date.now(),
+    recognitionMode,
+    weights,
+    stats: recognitionStats ? { ...recognitionStats } : undefined,
+  };
+
+  appendTrialLog(log);
+  renderTrialCount();
+  return id;
+}
+
+function renderTrialCount(): void {
+  trialCountEl.textContent = String(loadTrialLogs().length);
+}
+
+function normalizeOptionalWord(value: string): string | undefined {
+  const word = value.trim().toLowerCase();
+  return word.length > 0 ? word : undefined;
 }
 
 function formatWeightValue(value: number): string {

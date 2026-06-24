@@ -56,3 +56,18 @@ export type Candidate = {
   wordPathLength: number;
   frequencyBonus: number;
 };
+
+export type TrialLog = {
+  id: string;
+  targetWord?: string;
+  stroke: Point[];
+  normalizedStroke: Point[];
+  candidates: Candidate[];
+  selectedWord?: string;
+  recognizerVersion: string;
+  dictionaryVersion: string;
+  timestamp: number;
+  recognitionMode: string;
+  weights: Record<string, number>;
+  stats?: Record<string, number>;
+};
