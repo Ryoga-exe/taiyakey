@@ -166,8 +166,8 @@ const commonWords = [
 ];
 
 const outputDir = path.join("public", "dict");
-const outputPath = path.join(outputDir, "words-1k.json");
 const allowedWord = /^[a-z]{2,16}$/;
+const dictionarySizes = [1000, 5000, 25000];
 
 const wordsText = await fs.readFile(wordListPath, "utf8");
 const wordListWords = wordsText
@@ -186,13 +186,21 @@ for (const [index, word] of commonWords.entries()) {
 }
 
 for (const word of wordListWords) {
-  if (entries.length >= 1000) break;
+  if (entries.length >= Math.max(...dictionarySizes)) break;
   if (uniqueWords.has(word)) continue;
   uniqueWords.add(word);
-  entries.push([word, 0.0002]);
+  entries.push([word, syntheticFrequency(entries.length)]);
 }
 
 await fs.mkdir(outputDir, { recursive: true });
-await fs.writeFile(outputPath, `${JSON.stringify(entries, null, 2)}\n`);
 
-console.log(`Wrote ${entries.length} words to ${outputPath}`);
+for (const size of dictionarySizes) {
+  const outputPath = path.join(outputDir, `words-${size / 1000}k.json`);
+  const sizedEntries = entries.slice(0, size);
+  await fs.writeFile(outputPath, `${JSON.stringify(sizedEntries, null, 2)}\n`);
+  console.log(`Wrote ${sizedEntries.length} words to ${outputPath}`);
+}
+
+function syntheticFrequency(index) {
+  return 1 / (index + 250);
+}

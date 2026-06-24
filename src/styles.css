@@ -166,6 +166,36 @@ canvas {
   padding: 8px 14px 14px;
 }
 
+.control-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 14px 14px;
+}
+
+.select-control {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #364152;
+  font-size: 13px;
+}
+
+.control-name {
+  font-weight: 650;
+}
+
+.select-control select {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid #cfd6df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #273142;
+}
+
 .weight-control {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr) 42px;

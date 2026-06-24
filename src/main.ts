@@ -3,6 +3,7 @@ import { preprocessWords, type RawWordEntry } from "./dictionary/preprocess";
 import { createQwertyLayout } from "./keyboard/qwerty";
 import { fromCanvasPoint, render, canvasSize } from "./render/canvas";
 import {
+  recognizeByFullScanResult,
   recognizeWithPruning,
   type RecognitionResult,
 } from "./recognizer/recognizer";
@@ -20,6 +21,19 @@ import type { Candidate, Point, WordEntry } from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
+
+type DictionaryOption = {
+  label: string;
+  url: string;
+};
+
+type RecognitionMode = "pruned" | "full";
+
+const dictionaries: DictionaryOption[] = [
+  { label: "1k", url: "/dict/words-1k.json" },
+  { label: "5k", url: "/dict/words-5k.json" },
+  { label: "25k", url: "/dict/words-25k.json" },
+];
 
 app.innerHTML = `
   <main class="app">
@@ -39,6 +53,24 @@ app.innerHTML = `
         </div>
         <div class="candidate-list" data-candidates>
           <div class="empty">Draw across the keyboard to recognize a word.</div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Recognizer</h2>
+        </div>
+        <div class="control-list">
+          <label class="select-control">
+            <span class="control-name">Dictionary</span>
+            <select data-dictionary></select>
+          </label>
+          <label class="select-control">
+            <span class="control-name">Mode</span>
+            <select data-mode>
+              <option value="pruned">Pruned</option>
+              <option value="full">Full scan</option>
+            </select>
+          </label>
         </div>
       </section>
       <section class="panel">
@@ -73,6 +105,14 @@ const weightsEl = requireElement(
   app.querySelector<HTMLDivElement>("[data-weights]"),
   "Missing weights element",
 );
+const dictionarySelect = requireElement(
+  app.querySelector<HTMLSelectElement>("[data-dictionary]"),
+  "Missing dictionary select",
+);
+const modeSelect = requireElement(
+  app.querySelector<HTMLSelectElement>("[data-mode]"),
+  "Missing mode select",
+);
 const logEl = requireElement(
   app.querySelector<HTMLParagraphElement>("[data-log]"),
   "Missing log element",
@@ -98,12 +138,20 @@ let recognitionStats: RecognitionStats | undefined;
 let selectedWord: string | undefined;
 let isDrawing = false;
 let weights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
+let selectedDictionary = dictionaries[2];
+let recognitionMode: RecognitionMode = "pruned";
 
 void initialize();
+renderRecognizerControls();
 renderWeights();
 
 async function initialize(): Promise<void> {
-  const response = await fetch("/dict/words-1k.json");
+  await loadSelectedDictionary();
+}
+
+async function loadSelectedDictionary(): Promise<void> {
+  statusEl.textContent = `Loading ${selectedDictionary.label} dictionary...`;
+  const response = await fetch(selectedDictionary.url);
   if (!response.ok) {
     throw new Error(`Failed to load dictionary: ${response.status}`);
   }
@@ -114,6 +162,7 @@ async function initialize(): Promise<void> {
   wordIndex = buildWordIndex(entries);
 
   statusEl.textContent = `${entries.length.toLocaleString()} words ready`;
+  if (stroke.length >= 2) rerankLastStroke();
   draw();
 }
 
@@ -274,6 +323,33 @@ function renderWeights(): void {
   );
 }
 
+function renderRecognizerControls(): void {
+  dictionarySelect.replaceChildren(
+    ...dictionaries.map((dictionary) => {
+      const option = document.createElement("option");
+      option.value = dictionary.url;
+      option.textContent = dictionary.label;
+      option.selected = dictionary.url === selectedDictionary.url;
+      return option;
+    }),
+  );
+
+  dictionarySelect.addEventListener("change", () => {
+    const nextDictionary = dictionaries.find(
+      (dictionary) => dictionary.url === dictionarySelect.value,
+    );
+    if (!nextDictionary) return;
+    selectedDictionary = nextDictionary;
+    void loadSelectedDictionary();
+  });
+
+  modeSelect.value = recognitionMode;
+  modeSelect.addEventListener("change", () => {
+    recognitionMode = modeSelect.value === "full" ? "full" : "pruned";
+    rerankLastStroke();
+  });
+}
+
 function rerankLastStroke(): void {
   if (stroke.length < 2 || entries.length === 0 || !wordIndex || isDrawing) return;
 
@@ -302,12 +378,16 @@ function recognize(input: Point[]): RecognitionResult {
     };
   }
 
+  if (recognitionMode === "full") {
+    return recognizeByFullScanResult(input, entries, 5, weights);
+  }
+
   return recognizeWithPruning(input, wordIndex, layout, 5, weights);
 }
 
 function formatStatus(elapsed: number): string {
   const scored = recognitionStats?.scoredCandidates ?? entries.length;
-  return `${entries.length.toLocaleString()} words ready, scored ${scored.toLocaleString()}, ${elapsed.toFixed(1)} ms`;
+  return `${selectedDictionary.label} ${recognitionMode}, ${entries.length.toLocaleString()} words, scored ${scored.toLocaleString()}, ${elapsed.toFixed(1)} ms`;
 }
 
 function formatStrokeLog(): string {

@@ -28,6 +28,26 @@ export function recognizeByFullScan(
     .slice(0, limit);
 }
 
+export function recognizeByFullScanResult(
+  input: Point[],
+  entries: WordEntry[],
+  limit = 5,
+  weights?: ScoreWeights,
+): RecognitionResult {
+  const candidates = recognizeByFullScan(input, entries, limit, weights);
+
+  return {
+    candidates,
+    stats: {
+      totalEntries: entries.length,
+      indexedCandidates: entries.length,
+      afterLengthFilter: entries.length,
+      afterBoundsFilter: entries.length,
+      scoredCandidates: entries.length,
+    },
+  };
+}
+
 export function recognizeWithPruning(
   input: Point[],
   index: WordIndex,
