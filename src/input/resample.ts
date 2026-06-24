@@ -1,0 +1,65 @@
+import type { Point } from "../types";
+
+export function pathLength(points: Point[]): number {
+  let length = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    length += distance(points[i - 1], points[i]);
+  }
+  return length;
+}
+
+export function resample(points: Point[], count: number): Point[] {
+  if (count <= 0) return [];
+  if (points.length === 0) return [];
+  if (points.length === 1 || pathLength(points) === 0) {
+    return Array.from({ length: count }, () => ({ ...points[0] }));
+  }
+
+  const totalLength = pathLength(points);
+  const interval = totalLength / (count - 1);
+  const result: Point[] = [{ ...points[0] }];
+
+  let segmentStart = points[0];
+  let segmentIndex = 1;
+  let remainingDistance = interval;
+
+  while (segmentIndex < points.length && result.length < count - 1) {
+    const segmentEnd = points[segmentIndex];
+    const segmentLength = distance(segmentStart, segmentEnd);
+
+    if (segmentLength >= remainingDistance) {
+      const ratio = remainingDistance / segmentLength;
+      const point = interpolate(segmentStart, segmentEnd, ratio);
+      result.push(point);
+      segmentStart = point;
+      remainingDistance = interval;
+    } else {
+      remainingDistance -= segmentLength;
+      segmentStart = segmentEnd;
+      segmentIndex += 1;
+    }
+  }
+
+  result.push({ ...points[points.length - 1] });
+
+  while (result.length < count) {
+    result.push({ ...points[points.length - 1] });
+  }
+
+  return result;
+}
+
+export function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function interpolate(a: Point, b: Point, ratio: number): Point {
+  return {
+    x: a.x + (b.x - a.x) * ratio,
+    y: a.y + (b.y - a.y) * ratio,
+    t:
+      a.t === undefined || b.t === undefined
+        ? undefined
+        : a.t + (b.t - a.t) * ratio,
+  };
+}
