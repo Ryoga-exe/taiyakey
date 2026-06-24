@@ -39,6 +39,9 @@ export function scoreEntry(
 
   return {
     word: entry.word,
+    rank: 0,
+    gestureRank: 0,
+    rankDelta: 0,
     score: gestureScore,
     gestureScore,
     pathDistance: pathDistanceValue,

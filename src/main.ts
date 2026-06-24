@@ -34,7 +34,13 @@ import {
   type ScoreWeights,
 } from "./recognizer/scorer";
 import { pathLength, resample } from "./input/resample";
-import type { Candidate, Point, TrialLog, WordEntry } from "./types";
+import type {
+  Candidate,
+  LanguageDiagnostics,
+  Point,
+  TrialLog,
+  WordEntry,
+} from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app");
@@ -240,6 +246,7 @@ let composedWords: string[] = [];
 let languageMode: LanguageMode = "off";
 let languageWeight = 1;
 let gpt2Client: Gpt2LanguageClient | undefined;
+let languageDiagnostics: LanguageDiagnostics = emptyLanguageDiagnostics();
 
 void initialize();
 renderRecognizerControls();
@@ -389,11 +396,11 @@ function renderCandidates(): void {
         <span class="candidate-word">${candidate.word}</span>
         <span class="candidate-score">${candidate.score.toFixed(1)}</span>
         <span class="candidate-details">
+          <span class="metric">rank ${candidate.gestureRank}->${candidate.rank}</span>
+          <span class="metric">delta ${formatRankDelta(candidate.rankDelta)}</span>
           <span class="metric">gesture ${candidate.gestureScore.toFixed(1)}</span>
+          <span class="metric">combined ${candidate.score.toFixed(1)}</span>
           <span class="metric">path ${candidate.pathDistance.toFixed(1)}</span>
-          <span class="metric">start ${candidate.startDistance.toFixed(1)}</span>
-          <span class="metric">end ${candidate.endDistance.toFixed(1)}</span>
-          <span class="metric">length ${candidate.lengthPenalty.toFixed(2)}</span>
           <span class="metric">lm ${candidate.languagePenalty.toFixed(2)}</span>
         </span>
       `;
@@ -562,19 +569,40 @@ async function recognizeAndRank(input: Point[]): Promise<RecognitionResult> {
 }
 
 async function rerankWithLanguage(rawCandidates: Candidate[]): Promise<Candidate[]> {
+  const startedAt = performance.now();
+
   if (languageMode === "off") {
+    languageDiagnostics = {
+      mode: languageMode,
+      model: "off",
+      weight: languageWeight,
+      rerankedCandidates: rawCandidates.length,
+      elapsedMs: performance.now() - startedAt,
+      status: "off",
+    };
     renderLanguageStatus();
-    return rawCandidates;
+    return applyLanguageScores(rawCandidates, [], 0);
   }
 
   const context = composedText();
   let languageScores: LanguageScore[] = [];
+  let status = "ready";
 
   if (languageMode === "unigram") {
     languageScores = scoreWithUnigram(rawCandidates, entriesByWord);
   } else {
     languageScores = await scoreWithGpt2(context, rawCandidates);
+    status = gpt2Client?.status ?? "ready";
   }
+
+  languageDiagnostics = {
+    mode: languageMode,
+    model: languageMode === "gpt2" ? "Xenova/distilgpt2" : "wordfreq-unigram",
+    weight: languageWeight,
+    rerankedCandidates: languageScores.length,
+    elapsedMs: performance.now() - startedAt,
+    status,
+  };
 
   renderLanguageStatus();
   return applyLanguageScores(rawCandidates, languageScores, languageWeight);
@@ -606,9 +634,10 @@ function formatStatus(elapsed: number): string {
 
 function formatStrokeLog(): string {
   const base = `${stroke.length} raw points, ${normalizedStroke.length} normalized points, ${pathLength(stroke).toFixed(0)}px path`;
-  if (!recognitionStats) return base;
+  const lm = `lm ${languageDiagnostics.rerankedCandidates} in ${languageDiagnostics.elapsedMs.toFixed(1)}ms`;
+  if (!recognitionStats) return `${base}. ${lm}`;
 
-  return `${base}. indexed ${recognitionStats.indexedCandidates}, length ${recognitionStats.afterLengthFilter}, bbox ${recognitionStats.afterBoundsFilter}, scored ${recognitionStats.scoredCandidates}`;
+  return `${base}. indexed ${recognitionStats.indexedCandidates}, length ${recognitionStats.afterLengthFilter}, bbox ${recognitionStats.afterBoundsFilter}, scored ${recognitionStats.scoredCandidates}, ${lm}`;
 }
 
 function saveCurrentTrial(): string {
@@ -628,6 +657,7 @@ function saveCurrentTrial(): string {
     committedWord: selectedWord,
     languageMode,
     languageWeight,
+    languageDiagnostics,
     weights,
     stats: recognitionStats ? { ...recognitionStats } : undefined,
   };
@@ -679,11 +709,28 @@ function renderLanguageStatus(message?: string): void {
   }
 
   if (languageMode === "unigram") {
-    languageStatusEl.textContent = `Unigram LM, weight ${languageWeight}`;
+    languageStatusEl.textContent = `Unigram LM, ${languageDiagnostics.rerankedCandidates} candidates, ${languageDiagnostics.elapsedMs.toFixed(1)} ms`;
     return;
   }
 
-  languageStatusEl.textContent = gpt2Client?.message ?? "GPT-2 not loaded";
+  const base = gpt2Client?.message ?? "GPT-2 not loaded";
+  languageStatusEl.textContent = `${base}, ${languageDiagnostics.rerankedCandidates} candidates, ${languageDiagnostics.elapsedMs.toFixed(1)} ms`;
+}
+
+function formatRankDelta(rankDelta: number): string {
+  if (rankDelta > 0) return `+${rankDelta}`;
+  return String(rankDelta);
+}
+
+function emptyLanguageDiagnostics(): LanguageDiagnostics {
+  return {
+    mode: "off",
+    model: "off",
+    weight: 0,
+    rerankedCandidates: 0,
+    elapsedMs: 0,
+    status: "idle",
+  };
 }
 
 function formatWeightValue(value: number): string {

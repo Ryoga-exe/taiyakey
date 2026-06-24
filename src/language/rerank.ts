@@ -7,8 +7,12 @@ export function applyLanguageScores(
   languageWeight: number,
 ): Candidate[] {
   const scoreByWord = new Map(scores.map((score) => [score.word, score]));
+  const withGestureRanks = candidates.map((candidate, index) => ({
+    ...candidate,
+    gestureRank: index + 1,
+  }));
 
-  return candidates
+  return withGestureRanks
     .map((candidate) => {
       const languageScore = scoreByWord.get(candidate.word) ?? {
         word: candidate.word,
@@ -23,7 +27,12 @@ export function applyLanguageScores(
         languageModel: languageScore.model,
       };
     })
-    .sort((a, b) => a.score - b.score);
+    .sort((a, b) => a.score - b.score)
+    .map((candidate, index) => ({
+      ...candidate,
+      rank: index + 1,
+      rankDelta: candidate.gestureRank - (index + 1),
+    }));
 }
 
 export function scoreWithUnigram(

@@ -47,6 +47,9 @@ export type WordEntry = {
 
 export type Candidate = {
   word: string;
+  rank: number;
+  gestureRank: number;
+  rankDelta: number;
   score: number;
   gestureScore: number;
   pathDistance: number;
@@ -58,6 +61,15 @@ export type Candidate = {
   frequencyBonus: number;
   languagePenalty: number;
   languageModel: string;
+};
+
+export type LanguageDiagnostics = {
+  mode: string;
+  model: string;
+  weight: number;
+  rerankedCandidates: number;
+  elapsedMs: number;
+  status: string;
 };
 
 export type TrialLog = {
@@ -75,6 +87,7 @@ export type TrialLog = {
   committedWord?: string;
   languageMode?: string;
   languageWeight?: number;
+  languageDiagnostics?: LanguageDiagnostics;
   weights: Record<string, number>;
   stats?: Record<string, number>;
 };
