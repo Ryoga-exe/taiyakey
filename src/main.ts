@@ -3,7 +3,11 @@ import { preprocessWords, type RawWordEntry } from "./dictionary/preprocess";
 import { createQwertyLayout } from "./keyboard/qwerty";
 import { fromCanvasPoint, render, canvasSize } from "./render/canvas";
 import { recognizeByFullScan } from "./recognizer/recognizer";
-import { resample } from "./input/resample";
+import {
+  DEFAULT_SCORE_WEIGHTS,
+  type ScoreWeights,
+} from "./recognizer/scorer";
+import { pathLength, resample } from "./input/resample";
 import type { Candidate, Point, WordEntry } from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -31,6 +35,12 @@ app.innerHTML = `
       </section>
       <section class="panel">
         <div class="panel-header">
+          <h2 class="panel-title">Weights</h2>
+        </div>
+        <div class="weight-list" data-weights></div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
           <h2 class="panel-title">Stroke</h2>
         </div>
         <p class="log" data-log>0 raw points</p>
@@ -50,6 +60,10 @@ const statusEl = requireElement(
 const candidatesEl = requireElement(
   app.querySelector<HTMLDivElement>("[data-candidates]"),
   "Missing candidates element",
+);
+const weightsEl = requireElement(
+  app.querySelector<HTMLDivElement>("[data-weights]"),
+  "Missing weights element",
 );
 const logEl = requireElement(
   app.querySelector<HTMLParagraphElement>("[data-log]"),
@@ -73,8 +87,10 @@ let normalizedStroke: Point[] = [];
 let candidates: Candidate[] = [];
 let selectedWord: string | undefined;
 let isDrawing = false;
+let weights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
 
 void initialize();
+renderWeights();
 
 async function initialize(): Promise<void> {
   const response = await fetch("/dict/words-1k.json");
@@ -124,7 +140,7 @@ function finishStroke(): void {
 
   if (stroke.length >= 2 && entries.length > 0) {
     const startedAt = performance.now();
-    candidates = recognizeByFullScan(stroke, entries, 5);
+    candidates = recognizeByFullScan(stroke, entries, 5, weights);
     selectedWord = candidates[0]?.word;
     const elapsed = performance.now() - startedAt;
     statusEl.textContent = `${entries.length.toLocaleString()} words ready, ${elapsed.toFixed(1)} ms`;
@@ -157,7 +173,7 @@ function draw(): void {
     isDrawing,
   });
 
-  logEl.textContent = `${stroke.length} raw points, ${normalizedStroke.length} normalized points`;
+  logEl.textContent = `${stroke.length} raw points, ${normalizedStroke.length} normalized points, ${pathLength(stroke).toFixed(0)}px path`;
 }
 
 function renderCandidates(): void {
@@ -185,12 +201,79 @@ function renderCandidates(): void {
           <span class="metric">path ${candidate.pathDistance.toFixed(1)}</span>
           <span class="metric">start ${candidate.startDistance.toFixed(1)}</span>
           <span class="metric">end ${candidate.endDistance.toFixed(1)}</span>
+          <span class="metric">length ${candidate.lengthPenalty.toFixed(2)}</span>
+          <span class="metric">freq ${candidate.frequencyBonus.toFixed(1)}</span>
+          <span class="metric">word ${candidate.wordPathLength.toFixed(0)}px</span>
         </span>
       `;
 
       return button;
     }),
   );
+}
+
+function renderWeights(): void {
+  const controls: Array<{
+    key: keyof ScoreWeights;
+    label: string;
+    min: number;
+    max: number;
+    step: number;
+  }> = [
+    { key: "startDistance", label: "Start", min: 0, max: 2, step: 0.1 },
+    { key: "endDistance", label: "End", min: 0, max: 2, step: 0.1 },
+    { key: "frequency", label: "Frequency", min: 0, max: 20, step: 0.5 },
+    { key: "lengthPenalty", label: "Length", min: 0, max: 80, step: 1 },
+  ];
+
+  weightsEl.replaceChildren(
+    ...controls.map((control) => {
+      const row = document.createElement("label");
+      row.className = "weight-control";
+
+      const name = document.createElement("span");
+      name.className = "weight-name";
+      name.textContent = control.label;
+
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = String(control.min);
+      input.max = String(control.max);
+      input.step = String(control.step);
+      input.value = String(weights[control.key]);
+      input.addEventListener("input", () => {
+        weights = {
+          ...weights,
+          [control.key]: Number(input.value),
+        };
+        value.textContent = formatWeightValue(weights[control.key]);
+        rerankLastStroke();
+      });
+
+      const value = document.createElement("span");
+      value.className = "weight-value";
+      value.textContent = formatWeightValue(weights[control.key]);
+
+      row.replaceChildren(name, input, value);
+      return row;
+    }),
+  );
+}
+
+function rerankLastStroke(): void {
+  if (stroke.length < 2 || entries.length === 0 || isDrawing) return;
+
+  const startedAt = performance.now();
+  candidates = recognizeByFullScan(stroke, entries, 5, weights);
+  selectedWord = candidates[0]?.word;
+  const elapsed = performance.now() - startedAt;
+  statusEl.textContent = `${entries.length.toLocaleString()} words ready, ${elapsed.toFixed(1)} ms`;
+  renderCandidates();
+  draw();
+}
+
+function formatWeightValue(value: number): string {
+  return value.toFixed(Number.isInteger(value) ? 0 : 1);
 }
 
 function requireElement<T extends Element>(

@@ -1,4 +1,4 @@
-import { resample } from "../input/resample";
+import { pathLength, resample } from "../input/resample";
 import { NORMALIZED_POINT_COUNT } from "../dictionary/preprocess";
 import type { Candidate, Point, WordEntry } from "../types";
 import { scoreEntry, type ScoreWeights } from "./scorer";
@@ -10,9 +10,10 @@ export function recognizeByFullScan(
   weights?: ScoreWeights,
 ): Candidate[] {
   const normalizedInput = resample(input, NORMALIZED_POINT_COUNT);
+  const inputPathLength = pathLength(input);
 
   return entries
-    .map((entry) => scoreEntry(normalizedInput, entry, weights))
+    .map((entry) => scoreEntry(normalizedInput, entry, inputPathLength, weights))
     .sort((a, b) => a.score - b.score)
     .slice(0, limit);
 }

@@ -159,6 +159,38 @@ canvas {
   font-variant-numeric: tabular-nums;
 }
 
+.weight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 14px 14px;
+}
+
+.weight-control {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+  color: #364152;
+  font-size: 13px;
+}
+
+.weight-name {
+  font-weight: 650;
+}
+
+.weight-value {
+  color: #7a432b;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
+}
+
+.weight-control input {
+  width: 100%;
+  accent-color: #de7846;
+}
+
 .metric {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -12,12 +12,13 @@ export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
   startDistance: 0.8,
   endDistance: 0.8,
   frequency: 8,
-  lengthPenalty: 2,
+  lengthPenalty: 32,
 };
 
 export function scoreEntry(
   normalizedInput: Point[],
   entry: WordEntry,
+  inputPathLength: number,
   weights: ScoreWeights = DEFAULT_SCORE_WEIGHTS,
 ): Candidate {
   const pathDistanceValue = pathDistance(normalizedInput, entry.normalizedPath);
@@ -26,7 +27,7 @@ export function scoreEntry(
     normalizedInput[normalizedInput.length - 1],
     entry.normalizedPath[entry.normalizedPath.length - 1],
   );
-  const lengthPenalty = Math.abs(normalizedInput.length - entry.normalizedPath.length);
+  const lengthPenalty = lengthRatioPenalty(inputPathLength, entry.pathLength);
   const frequencyBonus = -weights.frequency * entry.logFrequency;
 
   return {
@@ -41,8 +42,17 @@ export function scoreEntry(
     startDistance: startDistanceValue,
     endDistance: endDistanceValue,
     lengthPenalty,
+    inputPathLength,
+    wordPathLength: entry.pathLength,
     frequencyBonus,
   };
+}
+
+export function lengthRatioPenalty(inputPathLength: number, wordPathLength: number): number {
+  if (inputPathLength <= 0 && wordPathLength <= 0) return 0;
+  const longer = Math.max(inputPathLength, wordPathLength);
+  const shorter = Math.max(Math.min(inputPathLength, wordPathLength), 1);
+  return longer / shorter - 1;
 }
 
 export function pathDistance(a: Point[], b: Point[]): number {

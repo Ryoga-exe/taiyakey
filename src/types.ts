@@ -27,6 +27,7 @@ export type WordEntry = {
   collapsed: string;
   keyPath: Point[];
   normalizedPath: Point[];
+  pathLength: number;
   startKeyId: string;
   endKeyId: string;
   length: number;
@@ -39,5 +40,7 @@ export type Candidate = {
   startDistance: number;
   endDistance: number;
   lengthPenalty: number;
+  inputPathLength: number;
+  wordPathLength: number;
   frequencyBonus: number;
 };
