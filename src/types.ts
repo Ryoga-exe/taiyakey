@@ -4,6 +4,17 @@ export type Point = {
   t?: number;
 };
 
+export type Bounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+};
+
 export type Key = {
   id: string;
   chars: string[];
@@ -28,6 +39,7 @@ export type WordEntry = {
   keyPath: Point[];
   normalizedPath: Point[];
   pathLength: number;
+  bounds: Bounds;
   startKeyId: string;
   endKeyId: string;
   length: number;

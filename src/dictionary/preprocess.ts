@@ -1,5 +1,5 @@
 import { centerOf } from "../keyboard/qwerty";
-import { pathLength, resample } from "../input/resample";
+import { boundingBox, pathLength, resample } from "../input/resample";
 import type { KeyboardLayout, Point, WordEntry } from "../types";
 
 export const NORMALIZED_POINT_COUNT = 64;
@@ -39,6 +39,7 @@ export function buildWordEntry(
     keyPath,
     normalizedPath: resample(keyPath, NORMALIZED_POINT_COUNT),
     pathLength: pathLength(keyPath),
+    bounds: boundingBox(keyPath),
     startKeyId: firstKey.id,
     endKeyId: lastKey.id,
     length: normalizedWord.length,

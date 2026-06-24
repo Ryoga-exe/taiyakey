@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pathLength, resample } from "./resample";
+import { boundingBox, pathLength, resample } from "./resample";
 
 describe("resample", () => {
   it("creates evenly spaced points along a straight path", () => {
@@ -35,5 +35,26 @@ describe("pathLength", () => {
         { x: 6, y: 8 },
       ]),
     ).toBe(10);
+  });
+});
+
+describe("boundingBox", () => {
+  it("returns extents and center", () => {
+    expect(
+      boundingBox([
+        { x: 3, y: 10 },
+        { x: -1, y: 4 },
+        { x: 9, y: 7 },
+      ]),
+    ).toEqual({
+      minX: -1,
+      minY: 4,
+      maxX: 9,
+      maxY: 10,
+      width: 10,
+      height: 6,
+      centerX: 4,
+      centerY: 7,
+    });
   });
 });

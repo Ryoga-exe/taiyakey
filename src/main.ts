@@ -2,7 +2,15 @@ import "./styles.css";
 import { preprocessWords, type RawWordEntry } from "./dictionary/preprocess";
 import { createQwertyLayout } from "./keyboard/qwerty";
 import { fromCanvasPoint, render, canvasSize } from "./render/canvas";
-import { recognizeByFullScan } from "./recognizer/recognizer";
+import {
+  recognizeWithPruning,
+  type RecognitionResult,
+} from "./recognizer/recognizer";
+import {
+  buildWordIndex,
+  type RecognitionStats,
+  type WordIndex,
+} from "./recognizer/filter";
 import {
   DEFAULT_SCORE_WEIGHTS,
   type ScoreWeights,
@@ -82,9 +90,11 @@ ctx.scale(devicePixelRatio, devicePixelRatio);
 
 let entries: WordEntry[] = [];
 let entriesByWord = new Map<string, WordEntry>();
+let wordIndex: WordIndex | undefined;
 let stroke: Point[] = [];
 let normalizedStroke: Point[] = [];
 let candidates: Candidate[] = [];
+let recognitionStats: RecognitionStats | undefined;
 let selectedWord: string | undefined;
 let isDrawing = false;
 let weights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
@@ -101,6 +111,7 @@ async function initialize(): Promise<void> {
   const rawWords = (await response.json()) as RawWordEntry[];
   entries = preprocessWords(rawWords, layout);
   entriesByWord = new Map(entries.map((entry) => [entry.word, entry]));
+  wordIndex = buildWordIndex(entries);
 
   statusEl.textContent = `${entries.length.toLocaleString()} words ready`;
   draw();
@@ -111,6 +122,7 @@ canvas.addEventListener("pointerdown", (event) => {
   isDrawing = true;
   selectedWord = undefined;
   candidates = [];
+  recognitionStats = undefined;
   stroke = [eventPoint(event)];
   normalizedStroke = [];
   renderCandidates();
@@ -138,12 +150,14 @@ function finishStroke(): void {
   isDrawing = false;
   normalizedStroke = resample(stroke, 64);
 
-  if (stroke.length >= 2 && entries.length > 0) {
+  if (stroke.length >= 2 && entries.length > 0 && wordIndex) {
     const startedAt = performance.now();
-    candidates = recognizeByFullScan(stroke, entries, 5, weights);
+    const result = recognize(stroke);
+    candidates = result.candidates;
+    recognitionStats = result.stats;
     selectedWord = candidates[0]?.word;
     const elapsed = performance.now() - startedAt;
-    statusEl.textContent = `${entries.length.toLocaleString()} words ready, ${elapsed.toFixed(1)} ms`;
+    statusEl.textContent = formatStatus(elapsed);
   }
 
   renderCandidates();
@@ -173,7 +187,7 @@ function draw(): void {
     isDrawing,
   });
 
-  logEl.textContent = `${stroke.length} raw points, ${normalizedStroke.length} normalized points, ${pathLength(stroke).toFixed(0)}px path`;
+  logEl.textContent = formatStrokeLog();
 }
 
 function renderCandidates(): void {
@@ -261,15 +275,46 @@ function renderWeights(): void {
 }
 
 function rerankLastStroke(): void {
-  if (stroke.length < 2 || entries.length === 0 || isDrawing) return;
+  if (stroke.length < 2 || entries.length === 0 || !wordIndex || isDrawing) return;
 
   const startedAt = performance.now();
-  candidates = recognizeByFullScan(stroke, entries, 5, weights);
+  const result = recognize(stroke);
+  candidates = result.candidates;
+  recognitionStats = result.stats;
   selectedWord = candidates[0]?.word;
   const elapsed = performance.now() - startedAt;
-  statusEl.textContent = `${entries.length.toLocaleString()} words ready, ${elapsed.toFixed(1)} ms`;
+  statusEl.textContent = formatStatus(elapsed);
   renderCandidates();
   draw();
+}
+
+function recognize(input: Point[]): RecognitionResult {
+  if (!wordIndex) {
+    return {
+      candidates: [],
+      stats: {
+        totalEntries: entries.length,
+        indexedCandidates: 0,
+        afterLengthFilter: 0,
+        afterBoundsFilter: 0,
+        scoredCandidates: 0,
+      },
+    };
+  }
+
+  return recognizeWithPruning(input, wordIndex, layout, 5, weights);
+}
+
+function formatStatus(elapsed: number): string {
+  const scored = recognitionStats?.scoredCandidates ?? entries.length;
+  return `${entries.length.toLocaleString()} words ready, scored ${scored.toLocaleString()}, ${elapsed.toFixed(1)} ms`;
+}
+
+function formatStrokeLog(): string {
+  const base = `${stroke.length} raw points, ${normalizedStroke.length} normalized points, ${pathLength(stroke).toFixed(0)}px path`;
+  if (!recognitionStats) return base;
+
+  return `${base}. indexed ${recognitionStats.indexedCandidates}, length ${recognitionStats.afterLengthFilter}, bbox ${recognitionStats.afterBoundsFilter}, scored ${recognitionStats.scoredCandidates}`;
 }
 
 function formatWeightValue(value: number): string {
