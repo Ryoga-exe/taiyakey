@@ -8,6 +8,16 @@ import {
 } from "./debug/trialLog";
 import { preprocessWords, type RawWordEntry } from "./dictionary/preprocess";
 import { createQwertyLayout } from "./keyboard/qwerty";
+import { Gpt2LanguageClient } from "./language/gpt2Client";
+import {
+  applyLanguageScores,
+  languageModeLabel,
+  scoreWithUnigram,
+} from "./language/rerank";
+import {
+  type LanguageMode,
+  type LanguageScore,
+} from "./language/types";
 import { fromCanvasPoint, render, canvasSize } from "./render/canvas";
 import {
   recognizeByFullScanResult,
@@ -41,6 +51,8 @@ const dictionaries: DictionaryOption[] = [
   { label: "5k", url: "/dict/words-5k.json" },
   { label: "25k", url: "/dict/words-25k.json" },
 ];
+const DISPLAY_CANDIDATE_LIMIT = 5;
+const RERANK_CANDIDATE_LIMIT = 24;
 
 app.innerHTML = `
   <main class="app">
@@ -49,6 +61,13 @@ app.innerHTML = `
         <h1 class="title">Taiyakey</h1>
         <div class="status" data-status>Loading dictionary...</div>
       </div>
+      <section class="compose-panel">
+        <textarea data-composed-text aria-label="Composed text" rows="4"></textarea>
+        <div class="compose-actions">
+          <button class="secondary-button" type="button" data-undo-word>Undo</button>
+          <button class="secondary-button" type="button" data-clear-text>Clear text</button>
+        </div>
+      </section>
       <div class="canvas-shell">
         <canvas data-keyboard></canvas>
       </div>
@@ -78,6 +97,19 @@ app.innerHTML = `
               <option value="full">Full scan</option>
             </select>
           </label>
+          <label class="select-control">
+            <span class="control-name">LM</span>
+            <select data-language-mode>
+              <option value="off">Off</option>
+              <option value="unigram">Unigram</option>
+              <option value="gpt2">GPT-2</option>
+            </select>
+          </label>
+          <label class="select-control">
+            <span class="control-name">LM weight</span>
+            <input data-language-weight type="number" min="0" max="20" step="0.1" />
+          </label>
+          <p class="control-note" data-language-status>LM off</p>
         </div>
       </section>
       <section class="panel">
@@ -136,9 +168,33 @@ const modeSelect = requireElement(
   app.querySelector<HTMLSelectElement>("[data-mode]"),
   "Missing mode select",
 );
+const languageModeSelect = requireElement(
+  app.querySelector<HTMLSelectElement>("[data-language-mode]"),
+  "Missing language mode select",
+);
+const languageWeightInput = requireElement(
+  app.querySelector<HTMLInputElement>("[data-language-weight]"),
+  "Missing language weight input",
+);
+const languageStatusEl = requireElement(
+  app.querySelector<HTMLParagraphElement>("[data-language-status]"),
+  "Missing language status element",
+);
 const logEl = requireElement(
   app.querySelector<HTMLParagraphElement>("[data-log]"),
   "Missing log element",
+);
+const composedTextEl = requireElement(
+  app.querySelector<HTMLTextAreaElement>("[data-composed-text]"),
+  "Missing composed text element",
+);
+const undoWordButton = requireElement(
+  app.querySelector<HTMLButtonElement>("[data-undo-word]"),
+  "Missing undo word button",
+);
+const clearTextButton = requireElement(
+  app.querySelector<HTMLButtonElement>("[data-clear-text]"),
+  "Missing clear text button",
 );
 const targetWordInput = requireElement(
   app.querySelector<HTMLInputElement>("[data-target-word]"),
@@ -180,6 +236,10 @@ let weights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
 let selectedDictionary = dictionaries[2];
 let recognitionMode: RecognitionMode = "pruned";
 let currentTrialId: string | undefined;
+let composedWords: string[] = [];
+let languageMode: LanguageMode = "off";
+let languageWeight = 1;
+let gpt2Client: Gpt2LanguageClient | undefined;
 
 void initialize();
 renderRecognizerControls();
@@ -194,6 +254,23 @@ clearLogsButton.addEventListener("click", () => {
   clearTrialLogs();
   currentTrialId = undefined;
   renderTrialCount();
+});
+
+composedTextEl.addEventListener("input", () => {
+  composedWords = wordsFromText(composedTextEl.value);
+  rerankLastStroke();
+});
+
+undoWordButton.addEventListener("click", () => {
+  composedWords.pop();
+  renderComposedText();
+  rerankLastStroke();
+});
+
+clearTextButton.addEventListener("click", () => {
+  composedWords = [];
+  renderComposedText();
+  rerankLastStroke();
 });
 
 async function initialize(): Promise<void> {
@@ -239,7 +316,7 @@ canvas.addEventListener("pointermove", (event) => {
 canvas.addEventListener("pointerup", (event) => {
   if (!isDrawing) return;
   stroke.push(eventPoint(event));
-  finishStroke();
+  void finishStroke();
 });
 
 canvas.addEventListener("pointercancel", () => {
@@ -247,13 +324,13 @@ canvas.addEventListener("pointercancel", () => {
   draw();
 });
 
-function finishStroke(): void {
+async function finishStroke(): Promise<void> {
   isDrawing = false;
   normalizedStroke = resample(stroke, 64);
 
   if (stroke.length >= 2 && entries.length > 0 && wordIndex) {
     const startedAt = performance.now();
-    const result = recognize(stroke);
+    const result = await recognizeAndRank(stroke);
     candidates = result.candidates;
     recognitionStats = result.stats;
     selectedWord = candidates[0]?.word;
@@ -299,37 +376,50 @@ function renderCandidates(): void {
   }
 
   candidatesEl.replaceChildren(
-    ...candidates.map((candidate) => {
+    ...candidates.slice(0, DISPLAY_CANDIDATE_LIMIT).map((candidate) => {
       const button = document.createElement("button");
       button.className =
         candidate.word === selectedWord ? "candidate selected" : "candidate";
       button.type = "button";
       button.addEventListener("click", () => {
-        selectedWord = candidate.word;
-        if (currentTrialId) {
-          updateTrialLogSelection(currentTrialId, candidate.word);
-          renderTrialCount();
-        }
-        renderCandidates();
-        draw();
+        commitCandidate(candidate.word);
       });
 
       button.innerHTML = `
         <span class="candidate-word">${candidate.word}</span>
         <span class="candidate-score">${candidate.score.toFixed(1)}</span>
         <span class="candidate-details">
+          <span class="metric">gesture ${candidate.gestureScore.toFixed(1)}</span>
           <span class="metric">path ${candidate.pathDistance.toFixed(1)}</span>
           <span class="metric">start ${candidate.startDistance.toFixed(1)}</span>
           <span class="metric">end ${candidate.endDistance.toFixed(1)}</span>
           <span class="metric">length ${candidate.lengthPenalty.toFixed(2)}</span>
-          <span class="metric">freq ${candidate.frequencyBonus.toFixed(1)}</span>
-          <span class="metric">word ${candidate.wordPathLength.toFixed(0)}px</span>
+          <span class="metric">lm ${candidate.languagePenalty.toFixed(2)}</span>
         </span>
       `;
 
       return button;
     }),
   );
+}
+
+function commitCandidate(word: string): void {
+  selectedWord = word;
+  composedWords.push(word);
+  renderComposedText();
+
+  if (currentTrialId) {
+    updateTrialLogSelection(currentTrialId, word);
+    renderTrialCount();
+  }
+
+  candidates = [];
+  stroke = [];
+  normalizedStroke = [];
+  recognitionStats = undefined;
+  currentTrialId = undefined;
+  renderCandidates();
+  draw();
 }
 
 function renderWeights(): void {
@@ -405,13 +495,32 @@ function renderRecognizerControls(): void {
     recognitionMode = modeSelect.value === "full" ? "full" : "pruned";
     rerankLastStroke();
   });
+
+  languageModeSelect.value = languageMode;
+  languageModeSelect.addEventListener("change", () => {
+    languageMode = parseLanguageMode(languageModeSelect.value);
+    renderLanguageStatus();
+    rerankLastStroke();
+  });
+
+  languageWeightInput.value = String(languageWeight);
+  languageWeightInput.addEventListener("input", () => {
+    languageWeight = Number(languageWeightInput.value);
+    rerankLastStroke();
+  });
+
+  renderLanguageStatus();
 }
 
 function rerankLastStroke(): void {
   if (stroke.length < 2 || entries.length === 0 || !wordIndex || isDrawing) return;
 
+  void rerankLastStrokeAsync();
+}
+
+async function rerankLastStrokeAsync(): Promise<void> {
   const startedAt = performance.now();
-  const result = recognize(stroke);
+  const result = await recognizeAndRank(stroke);
   candidates = result.candidates;
   recognitionStats = result.stats;
   selectedWord = candidates[0]?.word;
@@ -421,7 +530,7 @@ function rerankLastStroke(): void {
   draw();
 }
 
-function recognize(input: Point[]): RecognitionResult {
+function recognize(input: Point[], limit: number): RecognitionResult {
   if (!wordIndex) {
     return {
       candidates: [],
@@ -436,15 +545,63 @@ function recognize(input: Point[]): RecognitionResult {
   }
 
   if (recognitionMode === "full") {
-    return recognizeByFullScanResult(input, entries, 5, weights);
+    return recognizeByFullScanResult(input, entries, limit, weights);
   }
 
-  return recognizeWithPruning(input, wordIndex, layout, 5, weights);
+  return recognizeWithPruning(input, wordIndex, layout, limit, weights);
+}
+
+async function recognizeAndRank(input: Point[]): Promise<RecognitionResult> {
+  const result = recognize(input, RERANK_CANDIDATE_LIMIT);
+  const rankedCandidates = await rerankWithLanguage(result.candidates);
+
+  return {
+    ...result,
+    candidates: rankedCandidates,
+  };
+}
+
+async function rerankWithLanguage(rawCandidates: Candidate[]): Promise<Candidate[]> {
+  if (languageMode === "off") {
+    renderLanguageStatus();
+    return rawCandidates;
+  }
+
+  const context = composedText();
+  let languageScores: LanguageScore[] = [];
+
+  if (languageMode === "unigram") {
+    languageScores = scoreWithUnigram(rawCandidates, entriesByWord);
+  } else {
+    languageScores = await scoreWithGpt2(context, rawCandidates);
+  }
+
+  renderLanguageStatus();
+  return applyLanguageScores(rawCandidates, languageScores, languageWeight);
+}
+
+async function scoreWithGpt2(
+  context: string,
+  rawCandidates: Candidate[],
+): Promise<LanguageScore[]> {
+  try {
+    gpt2Client ??= new Gpt2LanguageClient();
+    renderLanguageStatus("Loading/scoring GPT-2...");
+    const scores = await gpt2Client.scoreCandidates(
+      context,
+      rawCandidates.slice(0, DISPLAY_CANDIDATE_LIMIT * 2),
+    );
+    renderLanguageStatus(gpt2Client.message);
+    return scores;
+  } catch (error) {
+    renderLanguageStatus(error instanceof Error ? error.message : String(error));
+    return [];
+  }
 }
 
 function formatStatus(elapsed: number): string {
   const scored = recognitionStats?.scoredCandidates ?? entries.length;
-  return `${selectedDictionary.label} ${recognitionMode}, ${entries.length.toLocaleString()} words, scored ${scored.toLocaleString()}, ${elapsed.toFixed(1)} ms`;
+  return `${selectedDictionary.label} ${recognitionMode}, ${languageModeLabel(languageMode)}, ${entries.length.toLocaleString()} words, scored ${scored.toLocaleString()}, ${elapsed.toFixed(1)} ms`;
 }
 
 function formatStrokeLog(): string {
@@ -467,6 +624,10 @@ function saveCurrentTrial(): string {
     dictionaryVersion: selectedDictionary.label,
     timestamp: Date.now(),
     recognitionMode,
+    textBefore: composedText(),
+    committedWord: selectedWord,
+    languageMode,
+    languageWeight,
     weights,
     stats: recognitionStats ? { ...recognitionStats } : undefined,
   };
@@ -483,6 +644,46 @@ function renderTrialCount(): void {
 function normalizeOptionalWord(value: string): string | undefined {
   const word = value.trim().toLowerCase();
   return word.length > 0 ? word : undefined;
+}
+
+function renderComposedText(): void {
+  composedTextEl.value = composedText();
+}
+
+function composedText(): string {
+  return composedWords.join(" ");
+}
+
+function parseLanguageMode(value: string): LanguageMode {
+  if (value === "unigram" || value === "gpt2") return value;
+  return "off";
+}
+
+function wordsFromText(text: string): string[] {
+  return text
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 0);
+}
+
+function renderLanguageStatus(message?: string): void {
+  if (message) {
+    languageStatusEl.textContent = message;
+    return;
+  }
+
+  if (languageMode === "off") {
+    languageStatusEl.textContent = "LM off";
+    return;
+  }
+
+  if (languageMode === "unigram") {
+    languageStatusEl.textContent = `Unigram LM, weight ${languageWeight}`;
+    return;
+  }
+
+  languageStatusEl.textContent = gpt2Client?.message ?? "GPT-2 not loaded";
 }
 
 function formatWeightValue(value: number): string {

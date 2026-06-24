@@ -30,14 +30,17 @@ export function scoreEntry(
   const lengthPenalty = lengthRatioPenalty(inputPathLength, entry.pathLength);
   const frequencyBonus = -weights.frequency * entry.logFrequency;
 
-  return {
-    word: entry.word,
-    score:
+  const gestureScore =
       pathDistanceValue +
       weights.startDistance * startDistanceValue +
       weights.endDistance * endDistanceValue +
       weights.lengthPenalty * lengthPenalty +
-      frequencyBonus,
+      frequencyBonus;
+
+  return {
+    word: entry.word,
+    score: gestureScore,
+    gestureScore,
     pathDistance: pathDistanceValue,
     startDistance: startDistanceValue,
     endDistance: endDistanceValue,
@@ -45,6 +48,8 @@ export function scoreEntry(
     inputPathLength,
     wordPathLength: entry.pathLength,
     frequencyBonus,
+    languagePenalty: 0,
+    languageModel: "off",
   };
 }
 

@@ -17,8 +17,8 @@ describe("scoreEntry", () => {
   it("reports the M2 score breakdown", () => {
     const entry: WordEntry = {
       word: "test",
-      frequency: 0.01,
-      logFrequency: -2,
+      frequency: 4,
+      logFrequency: 4,
       collapsed: "test",
       keyPath: [
         { x: 0, y: 0 },
@@ -59,6 +59,8 @@ describe("scoreEntry", () => {
     expect(candidate.lengthPenalty).toBe(1);
     expect(candidate.inputPathLength).toBe(200);
     expect(candidate.wordPathLength).toBe(100);
-    expect(candidate.frequencyBonus).toBe(16);
+    expect(candidate.frequencyBonus).toBe(-32);
+    expect(candidate.score).toBe(candidate.gestureScore);
+    expect(candidate.languagePenalty).toBe(0);
   });
 });

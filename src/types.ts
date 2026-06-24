@@ -48,6 +48,7 @@ export type WordEntry = {
 export type Candidate = {
   word: string;
   score: number;
+  gestureScore: number;
   pathDistance: number;
   startDistance: number;
   endDistance: number;
@@ -55,6 +56,8 @@ export type Candidate = {
   inputPathLength: number;
   wordPathLength: number;
   frequencyBonus: number;
+  languagePenalty: number;
+  languageModel: string;
 };
 
 export type TrialLog = {
@@ -68,6 +71,10 @@ export type TrialLog = {
   dictionaryVersion: string;
   timestamp: number;
   recognitionMode: string;
+  textBefore?: string;
+  committedWord?: string;
+  languageMode?: string;
+  languageWeight?: number;
   weights: Record<string, number>;
   stats?: Record<string, number>;
 };

@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:dict": "node scripts/build-dict.mjs",
+    "setup:dict": "python3 -m venv .venv-dict && .venv-dict/bin/python -m pip install -r requirements-dict.txt",
+    "build:dict": ".venv-dict/bin/python scripts/build-dict.py",
     "preview": "vite preview",
     "test": "vitest run"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8",
-    "word-list": "^4.1.0"
+    "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0"
   }
 }

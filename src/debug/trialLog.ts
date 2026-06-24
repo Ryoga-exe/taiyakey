@@ -22,7 +22,7 @@ export function appendTrialLog(log: TrialLog): TrialLog[] {
 
 export function updateTrialLogSelection(id: string, selectedWord: string): TrialLog[] {
   const logs = loadTrialLogs().map((log) =>
-    log.id === id ? { ...log, selectedWord } : log,
+    log.id === id ? { ...log, selectedWord, committedWord: selectedWord } : log,
   );
   saveTrialLogs(logs);
   return logs;

@@ -16,7 +16,7 @@ export function buildWordEntry(
   layout: KeyboardLayout,
 ): WordEntry | null {
   const normalizedWord = word.toLowerCase();
-  if (!/^[a-z]{2,16}$/.test(normalizedWord)) return null;
+  if (!/^[a-z]{1,16}$/.test(normalizedWord)) return null;
 
   const collapsed = collapseRepeats(normalizedWord);
   const keyPath: Point[] = [];
@@ -34,7 +34,7 @@ export function buildWordEntry(
   return {
     word: normalizedWord,
     frequency,
-    logFrequency: Math.log10(Math.max(frequency, 1e-9)),
+    logFrequency: frequency,
     collapsed,
     keyPath,
     normalizedPath: resample(keyPath, NORMALIZED_POINT_COUNT),

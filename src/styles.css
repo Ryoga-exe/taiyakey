@@ -63,6 +63,31 @@ select {
   font-size: 14px;
 }
 
+.compose-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.compose-panel textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #18202b;
+  line-height: 1.5;
+}
+
+.compose-actions {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+}
+
 .canvas-shell {
   overflow: hidden;
   border: 1px solid #ccd3dc;
@@ -197,6 +222,13 @@ canvas {
   color: #273142;
 }
 
+.control-note {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .panel-count {
   color: #7a432b;
   font-size: 13px;
@@ -272,5 +304,14 @@ canvas {
 @media (max-width: 880px) {
   .app {
     grid-template-columns: 1fr;
+  }
+
+  .compose-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .compose-actions {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
   }
 }

@@ -19,6 +19,13 @@ describe("buildWordEntry", () => {
     expect(entry?.normalizedPath).toHaveLength(64);
   });
 
+  it("supports one-letter words such as i and a", () => {
+    const layout = createQwertyLayout();
+
+    expect(buildWordEntry("i", 7, layout)?.word).toBe("i");
+    expect(buildWordEntry("a", 7, layout)?.word).toBe("a");
+  });
+
   it("rejects unsupported words", () => {
     expect(buildWordEntry("don't", 0.2, createQwertyLayout())).toBeNull();
     expect(buildWordEntry("supercalifragilisticexpialidocious", 0.2, createQwertyLayout())).toBeNull();
