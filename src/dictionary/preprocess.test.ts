@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createQwertyLayout } from "../keyboard/qwerty";
+import { createColumnQwertyLayout, createQwertyLayout } from "../keyboard/qwerty";
 import { buildWordEntry, collapseRepeats } from "./preprocess";
 
 describe("collapseRepeats", () => {
@@ -29,5 +29,14 @@ describe("buildWordEntry", () => {
   it("rejects unsupported words", () => {
     expect(buildWordEntry("don't", 0.2, createQwertyLayout())).toBeNull();
     expect(buildWordEntry("supercalifragilisticexpialidocious", 0.2, createQwertyLayout())).toBeNull();
+  });
+
+  it("collapses adjacent letters that share a column key", () => {
+    const entry = buildWordEntry("qaz", 0.2, createColumnQwertyLayout());
+
+    expect(entry?.collapsed).toBe("qaz");
+    expect(entry?.keyPath).toHaveLength(1);
+    expect(entry?.startKeyId).toBe("c0");
+    expect(entry?.endKeyId).toBe("c0");
   });
 });

@@ -1,6 +1,6 @@
 import { centerOf } from "../keyboard/qwerty";
 import { boundingBox, pathLength, resample } from "../input/resample";
-import type { KeyboardLayout, Point, WordEntry } from "../types";
+import type { Key, KeyboardLayout, Point, WordEntry } from "../types";
 
 export const NORMALIZED_POINT_COUNT = 64;
 
@@ -20,15 +20,20 @@ export function buildWordEntry(
 
   const collapsed = collapseRepeats(normalizedWord);
   const keyPath: Point[] = [];
+  const keySequence: Key[] = [];
+  let previousKeyId: string | undefined;
 
   for (const char of collapsed) {
     const key = layout.charToKey.get(char);
     if (!key) return null;
+    if (key.id === previousKeyId) continue;
+    keySequence.push(key);
     keyPath.push(centerOf(key));
+    previousKeyId = key.id;
   }
 
-  const firstKey = layout.charToKey.get(collapsed[0]);
-  const lastKey = layout.charToKey.get(collapsed[collapsed.length - 1]);
+  const firstKey = keySequence[0];
+  const lastKey = keySequence[keySequence.length - 1];
   if (!firstKey || !lastKey) return null;
 
   return {

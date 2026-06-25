@@ -11,7 +11,7 @@ type RenderState = {
   isDrawing: boolean;
 };
 
-const PADDING = 28;
+const PADDING = 16;
 const SCALE = 1;
 
 export function canvasSize(layout: KeyboardLayout): { width: number; height: number } {
@@ -69,7 +69,6 @@ function drawBackground(
 function drawKeyboard(ctx: CanvasRenderingContext2D, layout: KeyboardLayout): void {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "600 18px system-ui, sans-serif";
 
   for (const key of layout.keys) {
     const x = key.x * SCALE + PADDING;
@@ -84,9 +83,30 @@ function drawKeyboard(ctx: CanvasRenderingContext2D, layout: KeyboardLayout): vo
     ctx.stroke();
 
     const center = toCanvasPoint(centerOf(key));
-    ctx.fillStyle = "#1f2937";
-    ctx.fillText(key.chars.join(""), center.x, center.y);
+    drawKeyLabel(ctx, key.chars, center);
   }
+}
+
+function drawKeyLabel(
+  ctx: CanvasRenderingContext2D,
+  chars: string[],
+  center: Point,
+): void {
+  ctx.fillStyle = "#1f2937";
+
+  if (chars.length === 1) {
+    ctx.font = "600 18px system-ui, sans-serif";
+    ctx.fillText(chars[0], center.x, center.y);
+    return;
+  }
+
+  ctx.font = "600 15px system-ui, sans-serif";
+  const lineHeight = 20;
+  const firstY = center.y - ((chars.length - 1) * lineHeight) / 2;
+
+  chars.forEach((char, index) => {
+    ctx.fillText(char, center.x, firstY + index * lineHeight);
+  });
 }
 
 function drawPath(

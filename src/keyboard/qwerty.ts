@@ -2,8 +2,21 @@ import type { Key, KeyboardLayout, Point } from "../types";
 
 const KEY_SIZE = 58;
 const KEY_GAP = 7;
+const COLUMN_KEY_HEIGHT = 128;
 const ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
 const ROW_OFFSETS = [0, 0.5, 1.2];
+const COLUMN_ROWS = [
+  ["q", "a", "z"],
+  ["w", "s", "x"],
+  ["e", "d", "c"],
+  ["r", "f", "v"],
+  ["t", "g", "b"],
+  ["y", "h", "n"],
+  ["u", "j", "m"],
+  ["i", "k"],
+  ["o", "l"],
+  ["p"],
+];
 
 export function createQwertyLayout(): KeyboardLayout {
   const keys: Key[] = [];
@@ -24,17 +37,20 @@ export function createQwertyLayout(): KeyboardLayout {
     });
   });
 
-  const charToKey = new Map<string, Key>();
-  for (const key of keys) {
-    for (const char of key.chars) {
-      charToKey.set(char, key);
-    }
-  }
+  return createLayout("qwerty", "QWERTY", keys);
+}
 
-  const width = Math.max(...keys.map((key) => key.x + key.width));
-  const height = Math.max(...keys.map((key) => key.y + key.height));
+export function createColumnQwertyLayout(): KeyboardLayout {
+  const keys = COLUMN_ROWS.map((chars, columnIndex) => ({
+    id: `c${columnIndex}`,
+    chars,
+    x: columnIndex * (KEY_SIZE + KEY_GAP),
+    y: 0,
+    width: KEY_SIZE,
+    height: COLUMN_KEY_HEIGHT,
+  }));
 
-  return { keys, charToKey, width, height };
+  return createLayout("column", "Column", keys);
 }
 
 export function centerOf(key: Key): Point {
@@ -58,4 +74,18 @@ export function nearestKey(point: Point, layout: KeyboardLayout): Key {
   }
 
   return bestKey;
+}
+
+function createLayout(id: string, label: string, keys: Key[]): KeyboardLayout {
+  const charToKey = new Map<string, Key>();
+  for (const key of keys) {
+    for (const char of key.chars) {
+      charToKey.set(char, key);
+    }
+  }
+
+  const width = Math.max(...keys.map((key) => key.x + key.width));
+  const height = Math.max(...keys.map((key) => key.y + key.height));
+
+  return { id, label, keys, charToKey, width, height };
 }

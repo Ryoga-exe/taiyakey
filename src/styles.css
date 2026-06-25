@@ -43,24 +43,11 @@ select {
   min-width: 0;
 }
 
-.topbar {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
 .title {
   margin: 0;
   font-size: 26px;
   font-weight: 760;
   letter-spacing: 0;
-}
-
-.status {
-  color: #596579;
-  font-size: 14px;
 }
 
 .compose-panel {
@@ -246,7 +233,7 @@ canvas {
   min-height: 32px;
   border: 1px solid #cfd6df;
   border-radius: 6px;
-  background: #fbfcfd;
+  background: #ffffff;
   color: #273142;
   cursor: pointer;
 }

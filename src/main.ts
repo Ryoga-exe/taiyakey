@@ -7,17 +7,13 @@ import {
   updateTrialLogSelection,
 } from "./debug/trialLog";
 import { preprocessWords, type RawWordEntry } from "./dictionary/preprocess";
-import { createQwertyLayout } from "./keyboard/qwerty";
+import {
+  createColumnQwertyLayout,
+  createQwertyLayout,
+} from "./keyboard/qwerty";
 import { Gpt2LanguageClient } from "./language/gpt2Client";
-import {
-  applyLanguageScores,
-  languageModeLabel,
-  scoreWithUnigram,
-} from "./language/rerank";
-import {
-  type LanguageMode,
-  type LanguageScore,
-} from "./language/types";
+import { applyLanguageScores, scoreWithUnigram } from "./language/rerank";
+import { type LanguageMode, type LanguageScore } from "./language/types";
 import { fromCanvasPoint, render, canvasSize } from "./render/canvas";
 import {
   recognizeByFullScanResult,
@@ -29,13 +25,11 @@ import {
   type RecognitionStats,
   type WordIndex,
 } from "./recognizer/filter";
-import {
-  DEFAULT_SCORE_WEIGHTS,
-  type ScoreWeights,
-} from "./recognizer/scorer";
+import { DEFAULT_SCORE_WEIGHTS, type ScoreWeights } from "./recognizer/scorer";
 import { pathLength, resample } from "./input/resample";
 import type {
   Candidate,
+  KeyboardLayout,
   LanguageDiagnostics,
   Point,
   TrialLog,
@@ -50,6 +44,12 @@ type DictionaryOption = {
   url: string;
 };
 
+type KeyboardLayoutOption = {
+  id: string;
+  label: string;
+  create: () => KeyboardLayout;
+};
+
 type RecognitionMode = "pruned" | "full";
 
 const dictionaries: DictionaryOption[] = [
@@ -57,16 +57,16 @@ const dictionaries: DictionaryOption[] = [
   { label: "5k", url: "/dict/words-5k.json" },
   { label: "25k", url: "/dict/words-25k.json" },
 ];
+const keyboardLayouts: KeyboardLayoutOption[] = [
+  { id: "qwerty", label: "QWERTY", create: createQwertyLayout },
+  { id: "column", label: "Column", create: createColumnQwertyLayout },
+];
 const DISPLAY_CANDIDATE_LIMIT = 5;
 const RERANK_CANDIDATE_LIMIT = 24;
 
 app.innerHTML = `
   <main class="app">
     <section class="workspace">
-      <div class="topbar">
-        <h1 class="title">Taiyakey</h1>
-        <div class="status" data-status>Loading dictionary...</div>
-      </div>
       <section class="compose-panel">
         <textarea data-composed-text aria-label="Composed text" rows="4"></textarea>
         <div class="compose-actions">
@@ -84,7 +84,7 @@ app.innerHTML = `
           <h2 class="panel-title">Candidates</h2>
         </div>
         <div class="candidate-list" data-candidates>
-          <div class="empty">Draw across the keyboard to recognize a word.</div>
+          <div class="empty">...</div>
         </div>
       </section>
       <section class="panel">
@@ -95,6 +95,10 @@ app.innerHTML = `
           <label class="select-control">
             <span class="control-name">Dictionary</span>
             <select data-dictionary></select>
+          </label>
+          <label class="select-control">
+            <span class="control-name">Layout</span>
+            <select data-layout></select>
           </label>
           <label class="select-control">
             <span class="control-name">Mode</span>
@@ -154,10 +158,6 @@ const canvas = requireElement(
   app.querySelector<HTMLCanvasElement>("[data-keyboard]"),
   "Missing keyboard canvas",
 );
-const statusEl = requireElement(
-  app.querySelector<HTMLDivElement>("[data-status]"),
-  "Missing status element",
-);
 const candidatesEl = requireElement(
   app.querySelector<HTMLDivElement>("[data-candidates]"),
   "Missing candidates element",
@@ -169,6 +169,10 @@ const weightsEl = requireElement(
 const dictionarySelect = requireElement(
   app.querySelector<HTMLSelectElement>("[data-dictionary]"),
   "Missing dictionary select",
+);
+const layoutSelect = requireElement(
+  app.querySelector<HTMLSelectElement>("[data-layout]"),
+  "Missing layout select",
 );
 const modeSelect = requireElement(
   app.querySelector<HTMLSelectElement>("[data-mode]"),
@@ -219,16 +223,15 @@ const clearLogsButton = requireElement(
   "Missing clear logs button",
 );
 
-const layout = createQwertyLayout();
-const size = canvasSize(layout);
+let selectedKeyboardLayout = keyboardLayouts[0];
+let layout = selectedKeyboardLayout.create();
+let size = canvasSize(layout);
 const devicePixelRatio = window.devicePixelRatio || 1;
 const ctx = requireCanvasContext(canvas.getContext("2d"));
 
-canvas.width = size.width * devicePixelRatio;
-canvas.height = size.height * devicePixelRatio;
-canvas.style.setProperty("--canvas-aspect-ratio", `${size.width} / ${size.height}`);
-ctx.scale(devicePixelRatio, devicePixelRatio);
+configureCanvas();
 
+let rawDictionary: RawWordEntry[] = [];
 let entries: WordEntry[] = [];
 let entriesByWord = new Map<string, WordEntry>();
 let wordIndex: WordIndex | undefined;
@@ -236,6 +239,7 @@ let stroke: Point[] = [];
 let normalizedStroke: Point[] = [];
 let candidates: Candidate[] = [];
 let recognitionStats: RecognitionStats | undefined;
+let recognitionElapsedMs: number | undefined;
 let selectedWord: string | undefined;
 let isDrawing = false;
 let weights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
@@ -285,20 +289,22 @@ async function initialize(): Promise<void> {
 }
 
 async function loadSelectedDictionary(): Promise<void> {
-  statusEl.textContent = `Loading ${selectedDictionary.label} dictionary...`;
   const response = await fetch(selectedDictionary.url);
   if (!response.ok) {
     throw new Error(`Failed to load dictionary: ${response.status}`);
   }
 
-  const rawWords = (await response.json()) as RawWordEntry[];
-  entries = preprocessWords(rawWords, layout);
-  entriesByWord = new Map(entries.map((entry) => [entry.word, entry]));
-  wordIndex = buildWordIndex(entries);
+  rawDictionary = (await response.json()) as RawWordEntry[];
+  rebuildDictionaryForLayout();
 
-  statusEl.textContent = `${entries.length.toLocaleString()} words ready`;
   if (stroke.length >= 2) rerankLastStroke();
   draw();
+}
+
+function rebuildDictionaryForLayout(): void {
+  entries = preprocessWords(rawDictionary, layout);
+  entriesByWord = new Map(entries.map((entry) => [entry.word, entry]));
+  wordIndex = buildWordIndex(entries);
 }
 
 canvas.addEventListener("pointerdown", (event) => {
@@ -308,6 +314,7 @@ canvas.addEventListener("pointerdown", (event) => {
   currentTrialId = undefined;
   candidates = [];
   recognitionStats = undefined;
+  recognitionElapsedMs = undefined;
   stroke = [eventPoint(event)];
   normalizedStroke = [];
   renderCandidates();
@@ -342,7 +349,7 @@ async function finishStroke(): Promise<void> {
     recognitionStats = result.stats;
     selectedWord = candidates[0]?.word;
     const elapsed = performance.now() - startedAt;
-    statusEl.textContent = formatStatus(elapsed);
+    recognitionElapsedMs = elapsed;
     currentTrialId = saveCurrentTrial();
   }
 
@@ -362,6 +369,28 @@ function eventPoint(event: PointerEvent): Point {
   });
 }
 
+function configureCanvas(): void {
+  size = canvasSize(layout);
+  canvas.width = size.width * devicePixelRatio;
+  canvas.height = size.height * devicePixelRatio;
+  canvas.style.setProperty(
+    "--canvas-aspect-ratio",
+    `${size.width} / ${size.height}`,
+  );
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+
+function resetStrokeState(): void {
+  stroke = [];
+  normalizedStroke = [];
+  candidates = [];
+  selectedWord = undefined;
+  recognitionStats = undefined;
+  recognitionElapsedMs = undefined;
+  currentTrialId = undefined;
+  languageDiagnostics = emptyLanguageDiagnostics();
+}
+
 function draw(): void {
   render(ctx, {
     layout,
@@ -378,7 +407,7 @@ function draw(): void {
 
 function renderCandidates(): void {
   if (candidates.length === 0) {
-    candidatesEl.innerHTML = `<div class="empty">Draw across the keyboard to recognize a word.</div>`;
+    candidatesEl.innerHTML = `<div class="empty">...</div>`;
     return;
   }
 
@@ -424,6 +453,7 @@ function commitCandidate(word: string): void {
   stroke = [];
   normalizedStroke = [];
   recognitionStats = undefined;
+  recognitionElapsedMs = undefined;
   currentTrialId = undefined;
   renderCandidates();
   draw();
@@ -437,11 +467,11 @@ function renderWeights(): void {
     max: number;
     step: number;
   }> = [
-    { key: "startDistance", label: "Start", min: 0, max: 2, step: 0.1 },
-    { key: "endDistance", label: "End", min: 0, max: 2, step: 0.1 },
-    { key: "frequency", label: "Frequency", min: 0, max: 20, step: 0.5 },
-    { key: "lengthPenalty", label: "Length", min: 0, max: 80, step: 1 },
-  ];
+      { key: "startDistance", label: "Start", min: 0, max: 2, step: 0.1 },
+      { key: "endDistance", label: "End", min: 0, max: 2, step: 0.1 },
+      { key: "frequency", label: "Frequency", min: 0, max: 20, step: 0.5 },
+      { key: "lengthPenalty", label: "Length", min: 0, max: 80, step: 1 },
+    ];
 
   weightsEl.replaceChildren(
     ...controls.map((control) => {
@@ -497,6 +527,29 @@ function renderRecognizerControls(): void {
     void loadSelectedDictionary();
   });
 
+  layoutSelect.replaceChildren(
+    ...keyboardLayouts.map((keyboardLayout) => {
+      const option = document.createElement("option");
+      option.value = keyboardLayout.id;
+      option.textContent = keyboardLayout.label;
+      option.selected = keyboardLayout.id === selectedKeyboardLayout.id;
+      return option;
+    }),
+  );
+  layoutSelect.addEventListener("change", () => {
+    const nextLayout = keyboardLayouts.find(
+      (keyboardLayout) => keyboardLayout.id === layoutSelect.value,
+    );
+    if (!nextLayout) return;
+    selectedKeyboardLayout = nextLayout;
+    layout = selectedKeyboardLayout.create();
+    configureCanvas();
+    rebuildDictionaryForLayout();
+    resetStrokeState();
+    renderCandidates();
+    draw();
+  });
+
   modeSelect.value = recognitionMode;
   modeSelect.addEventListener("change", () => {
     recognitionMode = modeSelect.value === "full" ? "full" : "pruned";
@@ -520,7 +573,8 @@ function renderRecognizerControls(): void {
 }
 
 function rerankLastStroke(): void {
-  if (stroke.length < 2 || entries.length === 0 || !wordIndex || isDrawing) return;
+  if (stroke.length < 2 || entries.length === 0 || !wordIndex || isDrawing)
+    return;
 
   void rerankLastStrokeAsync();
 }
@@ -532,7 +586,7 @@ async function rerankLastStrokeAsync(): Promise<void> {
   recognitionStats = result.stats;
   selectedWord = candidates[0]?.word;
   const elapsed = performance.now() - startedAt;
-  statusEl.textContent = formatStatus(elapsed);
+  recognitionElapsedMs = elapsed;
   renderCandidates();
   draw();
 }
@@ -568,7 +622,9 @@ async function recognizeAndRank(input: Point[]): Promise<RecognitionResult> {
   };
 }
 
-async function rerankWithLanguage(rawCandidates: Candidate[]): Promise<Candidate[]> {
+async function rerankWithLanguage(
+  rawCandidates: Candidate[],
+): Promise<Candidate[]> {
   const startedAt = performance.now();
 
   if (languageMode === "off") {
@@ -622,22 +678,23 @@ async function scoreWithGpt2(
     renderLanguageStatus(gpt2Client.message);
     return scores;
   } catch (error) {
-    renderLanguageStatus(error instanceof Error ? error.message : String(error));
+    renderLanguageStatus(
+      error instanceof Error ? error.message : String(error),
+    );
     return [];
   }
 }
 
-function formatStatus(elapsed: number): string {
-  const scored = recognitionStats?.scoredCandidates ?? entries.length;
-  return `${selectedDictionary.label} ${recognitionMode}, ${languageModeLabel(languageMode)}, ${entries.length.toLocaleString()} words, scored ${scored.toLocaleString()}, ${elapsed.toFixed(1)} ms`;
-}
-
 function formatStrokeLog(): string {
   const base = `${stroke.length} raw points, ${normalizedStroke.length} normalized points, ${pathLength(stroke).toFixed(0)}px path`;
+  const recognition =
+    recognitionElapsedMs === undefined
+      ? ""
+      : `, recognition ${recognitionElapsedMs.toFixed(1)}ms`;
   const lm = `lm ${languageDiagnostics.rerankedCandidates} in ${languageDiagnostics.elapsedMs.toFixed(1)}ms`;
-  if (!recognitionStats) return `${base}. ${lm}`;
+  if (!recognitionStats) return `${base}${recognition}. ${lm}`;
 
-  return `${base}. indexed ${recognitionStats.indexedCandidates}, length ${recognitionStats.afterLengthFilter}, bbox ${recognitionStats.afterBoundsFilter}, scored ${recognitionStats.scoredCandidates}, ${lm}`;
+  return `${base}${recognition}. indexed ${recognitionStats.indexedCandidates}, length ${recognitionStats.afterLengthFilter}, bbox ${recognitionStats.afterBoundsFilter}, scored ${recognitionStats.scoredCandidates}, ${lm}`;
 }
 
 function saveCurrentTrial(): string {
@@ -651,6 +708,7 @@ function saveCurrentTrial(): string {
     candidates,
     recognizerVersion: "m4-local-log-v1",
     dictionaryVersion: selectedDictionary.label,
+    keyboardLayout: layout.id,
     timestamp: Date.now(),
     recognitionMode,
     textBefore: composedText(),

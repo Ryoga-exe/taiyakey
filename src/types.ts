@@ -25,6 +25,8 @@ export type Key = {
 };
 
 export type KeyboardLayout = {
+  id: string;
+  label: string;
   keys: Key[];
   charToKey: Map<string, Key>;
   width: number;
@@ -81,6 +83,7 @@ export type TrialLog = {
   selectedWord?: string;
   recognizerVersion: string;
   dictionaryVersion: string;
+  keyboardLayout?: string;
   timestamp: number;
   recognitionMode: string;
   textBefore?: string;
